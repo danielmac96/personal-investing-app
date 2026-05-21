@@ -1,0 +1,38 @@
+# Supabase
+
+Schema lives in `migrations/`. The Supabase project for this app:
+
+| Field | Value |
+| ----- | ----- |
+| Project name | `personal-investing-app` |
+| Project ref | `mmufhnhqpjrjxaghwdiq` |
+| Region | `us-east-1` |
+| URL | `https://mmufhnhqpjrjxaghwdiq.supabase.co` |
+
+## Applying migrations
+
+Migrations were applied via the Supabase MCP server during initial setup.
+To re-apply locally with the Supabase CLI:
+
+```bash
+supabase link --project-ref mmufhnhqpjrjxaghwdiq
+supabase db push
+```
+
+Or paste `migrations/0001_init.sql` into the SQL editor in the Supabase
+dashboard for a one-off run.
+
+## RLS model
+
+Single-user app. Access is gated by the `public.is_app_user()` function, which
+checks `auth.email() = 'danielmac96@gmail.com'`.
+
+- **User-writable tables** (`holdings`, `watchlist`, `theses`, `cash_position`):
+  full CRUD for the allow-listed user.
+- **Routine-written tables** (`prices_eod`, `fundamentals_snapshot`,
+  `news_items`, `earnings_events`, `daily_briefings`, `recommendations`):
+  SELECT-only for the user. Writes use the `service_role` key (which bypasses
+  RLS) from inside the daily routine.
+
+To add a second user, extend `is_app_user()` — every policy already routes
+through it.
