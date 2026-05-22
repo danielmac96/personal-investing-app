@@ -36,3 +36,10 @@ checks `auth.email() = 'danielmac96@gmail.com'`.
 
 To add a second user, extend `is_app_user()` — every policy already routes
 through it.
+
+## RPC functions
+
+- `apply_briefing(_briefing_date, _portfolio_summary, _raw_payload, _recommendations)`
+  — atomically replaces `daily_briefings` + `recommendations` for a given
+  date. SECURITY DEFINER, granted to `service_role` only. Used by
+  `routine/scripts/write_briefing.py`.
