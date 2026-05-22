@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { ConcentrationBadge } from "@/components/ConcentrationBadge";
 import { DayChangePill } from "@/components/DayChangePill";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
@@ -37,7 +39,14 @@ export function HoldingsTable({ rows }: { rows: EnrichedHolding[] }) {
       <TBody>
         {rows.map((r) => (
           <TR key={r.symbol}>
-            <TD className="font-medium">{r.symbol}</TD>
+            <TD className="font-medium">
+              <Link
+                href={`/stocks/${encodeURIComponent(r.symbol)}`}
+                className="text-slate-900 hover:underline"
+              >
+                {r.symbol}
+              </Link>
+            </TD>
             <TD className="text-right">{formatQty(r.qty)}</TD>
             <TD className="text-right">{formatUsd(r.lastClose)}</TD>
             <TD className="text-right">
