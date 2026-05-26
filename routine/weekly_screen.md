@@ -81,7 +81,18 @@ This calls `apply_screen_proposals`, which replaces only still-pending
 proposals for today — it never overwrites ones the user already approved or
 dismissed. Idempotent.
 
-## Step 5 — Confirmation summary
+## Step 5 — Record the run
+
+```
+python routine/scripts/record_run.py --type weekly_screen --status success \
+  --summary '{"evaluated": <n>, "passed": <n>, "proposals": <n>}'
+```
+
+If the screener crashed or zero names were evaluated, pass
+`--status failed --error "<what happened>"` instead. This row shows up on
+the dashboard's run-status banner.
+
+## Step 6 — Confirmation summary
 
 End with a single message: screen date, count evaluated, count passed,
 and the 3 proposals (symbol + confidence + one-line reason). No email for

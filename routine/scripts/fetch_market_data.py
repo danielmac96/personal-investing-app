@@ -27,6 +27,7 @@ import yfinance as yf  # type: ignore[import-untyped]
 from common import (
     briefing_date_str,
     load_env,
+    retry,
     snapshot_path,
     supabase_client,
 )
@@ -118,7 +119,7 @@ def _i(v) -> int | None:
 
 def safe_info(ticker: yf.Ticker) -> dict[str, Any]:
     try:
-        info = ticker.info or {}
+        info = retry(lambda: ticker.info or {}, label="info", attempts=3)
     except Exception as e:  # yfinance raises plain Exceptions
         return {"_error": f"info: {e}"}
     # Trim to the keys we actually use downstream — Ticker.info is huge.
@@ -245,7 +246,10 @@ def fetch_symbol(symbol: str) -> dict[str, Any]:
     t = yf.Ticker(yf_symbol)
 
     try:
-        history = t.history(period=f"{HISTORY_DAYS}d", auto_adjust=False)
+        history = retry(
+            lambda: t.history(period=f"{HISTORY_DAYS}d", auto_adjust=False),
+            label=f"{symbol} history",
+        )
         history_rows = serialise_history(history)
     except Exception as e:
         history_rows = []

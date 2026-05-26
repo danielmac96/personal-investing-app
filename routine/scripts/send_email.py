@@ -16,7 +16,7 @@ from pathlib import Path
 
 import requests
 
-from common import load_env, require_env
+from common import load_env, record_run, require_env, supabase_client
 
 
 def usd(value):
@@ -106,28 +106,75 @@ def main() -> int:
     ).rstrip("/")
 
     subject, html, text = build_email(briefing, site_url)
+    briefing_date = briefing.get("briefing_date")
+    run_summary = {
+        "total_value": briefing.get("portfolio_summary", {}).get("total_value"),
+        "recommendations": len(briefing.get("recommendations") or []),
+        "subject": subject,
+    }
 
-    resp = requests.post(
-        "https://api.resend.com/emails",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "from": from_email,
-            "to": [to_email],
-            "subject": subject,
-            "html": html,
-            "text": text,
-        },
-        timeout=30,
-    )
-    if not resp.ok:
-        print(
-            f"Resend error {resp.status_code}: {resp.text}",
-            file=sys.stderr,
+    # Records a routine_runs row regardless of outcome, so an undelivered
+    # email is always visible on the dashboard. Best-effort — never masks
+    # the email result.
+    client = None
+    try:
+        client = supabase_client()
+    except SystemExit:
+        client = None  # missing Supabase env shouldn't block the email itself
+
+    try:
+        resp = requests.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "from": from_email,
+                "to": [to_email],
+                "subject": subject,
+                "html": html,
+                "text": text,
+            },
+            timeout=30,
         )
+    except requests.RequestException as e:
+        if client is not None:
+            record_run(
+                client,
+                run_type="daily_briefing",
+                status="partial",
+                run_date=briefing_date,
+                email_status="failed",
+                summary=run_summary,
+                error=f"request error: {e}",
+            )
+        print(f"Resend request failed: {e}", file=sys.stderr)
         return 1
+
+    if not resp.ok:
+        if client is not None:
+            record_run(
+                client,
+                run_type="daily_briefing",
+                status="partial",
+                run_date=briefing_date,
+                email_status="failed",
+                summary=run_summary,
+                error=f"resend {resp.status_code}: {resp.text[:500]}",
+            )
+        print(f"Resend error {resp.status_code}: {resp.text}", file=sys.stderr)
+        return 1
+
+    if client is not None:
+        record_run(
+            client,
+            run_type="daily_briefing",
+            status="success",
+            run_date=briefing_date,
+            email_status="sent",
+            summary=run_summary,
+        )
     print(json.dumps(resp.json(), indent=2))
     return 0
 

@@ -31,7 +31,7 @@ from typing import Any
 
 import yfinance as yf  # type: ignore[import-untyped]
 
-from common import briefing_date_str, load_env, snapshot_path, supabase_client
+from common import briefing_date_str, load_env, retry, snapshot_path, supabase_client
 from compute_indicators import _f, indicator_snapshot
 from fetch_market_data import serialise_history
 from universe import screen_universe
@@ -77,7 +77,11 @@ def evaluate(symbol: str) -> dict[str, Any] | None:
     yf_symbol = symbol.replace(".", "-")
     t = yf.Ticker(yf_symbol)
     try:
-        hist = t.history(period="400d", auto_adjust=False)
+        hist = retry(
+            lambda: t.history(period="400d", auto_adjust=False),
+            label=f"{symbol} history",
+            attempts=3,
+        )
     except Exception:
         return None
     rows = serialise_history(hist)
@@ -86,7 +90,7 @@ def evaluate(symbol: str) -> dict[str, Any] | None:
     ind = indicator_snapshot(rows)
 
     try:
-        info = t.info or {}
+        info = retry(lambda: t.info or {}, label=f"{symbol} info", attempts=3)
     except Exception:
         info = {}
 

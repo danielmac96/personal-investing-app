@@ -5,6 +5,7 @@ import { Disclaimer } from "@/components/Disclaimer";
 import { DayChangePill } from "@/components/DayChangePill";
 import { HoldingsTable } from "@/components/HoldingsTable";
 import { OptionsIdeasCard, type OptionIdea } from "@/components/OptionsIdeasCard";
+import { RunStatusBanner, type RoutineRun } from "@/components/RunStatusBanner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,31 +30,39 @@ type TopWatchItem = {
 export default async function DashboardPage() {
   const supabase = createClient();
 
-  const [holdingsRes, cashRes, pricesRes, briefingRes] = await Promise.all([
-    supabase
-      .from("holdings")
-      .select("symbol, qty, cost_basis_per_share, notes")
-      .order("symbol", { ascending: true }),
-    supabase.from("cash_position").select("amount").maybeSingle(),
-    // Latest two closes per symbol — fetch a generous window and reduce
-    // client-side. Cheap enough for ~30 holdings.
-    supabase
-      .from("prices_eod")
-      .select("symbol, date, close")
-      .order("date", { ascending: false })
-      .limit(500),
-    supabase
-      .from("daily_briefings")
-      .select("briefing_date, portfolio_summary")
-      .order("briefing_date", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-  ]);
+  const [holdingsRes, cashRes, pricesRes, briefingRes, runRes] =
+    await Promise.all([
+      supabase
+        .from("holdings")
+        .select("symbol, qty, cost_basis_per_share, notes")
+        .order("symbol", { ascending: true }),
+      supabase.from("cash_position").select("amount").maybeSingle(),
+      // Latest two closes per symbol — fetch a generous window and reduce
+      // client-side. Cheap enough for ~30 holdings.
+      supabase
+        .from("prices_eod")
+        .select("symbol, date, close")
+        .order("date", { ascending: false })
+        .limit(500),
+      supabase
+        .from("daily_briefings")
+        .select("briefing_date, portfolio_summary")
+        .order("briefing_date", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from("routine_runs")
+        .select("run_type, run_date, status, email_status, error, created_at")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
 
   const holdings = (holdingsRes.data ?? []) as Holding[];
   const cash = Number(cashRes.data?.amount ?? 0);
   const priceRows = (pricesRes.data ?? []) as PriceRow[];
   const briefing = briefingRes.data;
+  const latestRun = (runRes.data ?? null) as RoutineRun | null;
 
   const prices = buildPriceMap(priceRows);
   const { rows, summary } = enrichHoldings(holdings, prices, cash);
@@ -97,6 +106,8 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      <RunStatusBanner run={latestRun} />
+
       <Card>
         <CardBody className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>

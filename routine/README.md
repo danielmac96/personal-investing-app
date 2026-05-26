@@ -20,8 +20,14 @@ routine/
     ├── send_email.py       # < 200-word Resend HTML email
     ├── universe.py         # curated screening universe (weekly)
     ├── screen_universe.py  # hard-filter growth screen → screen-<date>.json
-    └── write_proposals.py  # atomic apply_screen_proposals()
+    ├── write_proposals.py  # atomic apply_screen_proposals()
+    └── record_run.py       # write a routine_runs heartbeat row
 ```
+
+`common.py` also provides `retry()` (exponential backoff for flaky
+yfinance calls) and `record_run()` (best-effort routine_runs logging).
+`send_email.py` records a routine_runs row on every send — success or
+failure — so an undelivered briefing is always visible on the dashboard.
 
 ## Pipeline at a glance
 
