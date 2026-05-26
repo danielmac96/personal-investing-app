@@ -1,0 +1,43 @@
+# dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# next.js
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+.swc/
+
+# env
+.env
+.env.local
+.env*.local
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+
+# editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# python / routine artifacts (Phase 3)
+__pycache__/
+*.pyc
+.venv/
+routine/data/
+
+# misc
+coverage/
+.next/types/
+.turbo/
+
+# Claude Code local overrides (per-user only)
+.claude/settings.local.json
