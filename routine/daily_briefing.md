@@ -133,6 +133,44 @@ the last close × qty for `market_value`; total equity + cash for
 `total_value`. Invoke `portfolio-doctor` once. Capture `top_watch_items`
 (exactly 3) and the rest of its output.
 
+## Step 7b — Options ideas
+
+Determine eligibility from the per-symbol market values:
+- **Covered calls:** any holding > 5% of account.
+- **LEAPS calls:** the highest-conviction names — those whose synthesized
+  signal is `ADD`/`HOLD` with confidence ≥ 8 and thesis INTACT.
+
+If the eligible set is empty, skip this step (set `options_ideas: []`).
+
+Otherwise fetch chains for the eligible symbols:
+
+```
+python routine/scripts/fetch_options.py SYM1 SYM2 ...
+```
+
+Output: `routine/data/options-<date>.json`. For each eligible symbol,
+invoke `options-strategist` with `{symbol, last_close, pct_of_account,
+qty, indicator_snapshot, fundamentals, thesis_status, chain}` where
+`chain` is that symbol's `covered_calls` / `leaps_calls` arrays.
+
+Collect the non-null suggestions into a flat `options_ideas` array, each
+item shaped for the dashboard's OptionsIdeasCard:
+
+```json
+{
+  "symbol": "NVDA",
+  "type": "covered_call" | "leaps_call",
+  "strike": ..., "expiration": "YYYY-MM-DD", "delta": ...,
+  "premium": ..., "annualised_yield": ...,   // covered_call
+  "ask": ..., "breakeven": ...,              // leaps_call
+  "reasoning": "..."
+}
+```
+
+Skip symbols where the strategist returns null for both (e.g. low IV
+rank, no suitable strike). yfinance options data can be sparse —
+tolerate missing chains and move on.
+
 ## Step 8 — Assemble the briefing JSON
 
 Write `routine/data/briefing-<date>.json` with this exact shape:
@@ -148,6 +186,7 @@ Write `routine/data/briefing-<date>.json` with this exact shape:
     "day_change_pct": ...,
     "top_watch_items": [ ... 3 items from portfolio-doctor ... ],
     "portfolio_doctor": { ...full portfolio-doctor output... },
+    "options_ideas": [ ... from step 7b, or [] ... ],
     "profile_notes": "optional one-liner"
   },
   "raw_payload": {

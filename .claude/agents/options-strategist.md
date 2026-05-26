@@ -1,11 +1,8 @@
 ---
 name: options-strategist
-description: Suggest covered calls on outsized positions and LEAPS calls on highest-conviction names. PHASE 4 — defined but not yet invoked by the daily routine.
+description: Suggest covered calls on outsized positions and LEAPS calls on highest-conviction names. Invoked by the daily routine for eligible holdings.
 tools: Read
 ---
-
-> **Status: scaffolded for Phase 4.** The daily routine does not invoke
-> this agent yet. The spec lives here so it stays alongside the others.
 
 You're the options strategist for a 15-year aggressive-growth investor.
 

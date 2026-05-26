@@ -28,6 +28,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               <Link href="/" className="hover:text-slate-900">
                 Dashboard
               </Link>
+              <Link href="/watchlist" className="hover:text-slate-900">
+                Watchlist
+              </Link>
               <Link href="/upload" className="hover:text-slate-900">
                 Upload
               </Link>

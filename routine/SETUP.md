@@ -85,6 +85,17 @@ The scheduler runs the prompt in a fresh ephemeral container each
 weekday morning. Output (the confirmation summary at step 11) is
 visible in the schedule history.
 
+### Weekly growth screen (second schedule)
+
+Repeat the scheduling step with:
+- **Schedule:** `0 8 * * 0` in **America/New_York** (Sundays 8 AM ET).
+- **Environment:** the same one.
+- **Prompt:** literal copy of `routine/weekly_screen.md`.
+
+This writes up to 3 `watchlist_proposals` (status `pending`) each
+Sunday. Review them on the dashboard's `/watchlist` page — approve to
+add to the watchlist, or dismiss. No email is sent for the screen.
+
 ## 6. Stopping or pausing
 
 Pause the scheduled task from the same screen. The Supabase data

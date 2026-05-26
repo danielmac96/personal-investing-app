@@ -43,3 +43,14 @@ through it.
   — atomically replaces `daily_briefings` + `recommendations` for a given
   date. SECURITY DEFINER, granted to `service_role` only. Used by
   `routine/scripts/write_briefing.py`.
+- `apply_screen_proposals(_proposed_date, _proposals)` — atomically
+  replaces still-pending `watchlist_proposals` for a date (never clobbers
+  approved/dismissed ones). SECURITY DEFINER, `service_role` only. Used by
+  `routine/scripts/write_proposals.py`.
+
+## watchlist_proposals (0003)
+
+Weekly-screen candidates. The user can SELECT / UPDATE (approve/dismiss) /
+DELETE; only `service_role` inserts. Approving a proposal upserts the
+symbol into `watchlist` and flips the proposal's status — handled by the
+`/watchlist` server actions.

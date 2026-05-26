@@ -4,6 +4,7 @@ import { signOut } from "@/app/actions/auth";
 import { Disclaimer } from "@/components/Disclaimer";
 import { DayChangePill } from "@/components/DayChangePill";
 import { HoldingsTable } from "@/components/HoldingsTable";
+import { OptionsIdeasCard, type OptionIdea } from "@/components/OptionsIdeasCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
@@ -79,6 +80,17 @@ export default async function DashboardPage() {
       .order("confidence", { ascending: false })
       .limit(3);
     topWatch = (data ?? []) as TopWatchItem[];
+  }
+
+  let optionsIdeas: OptionIdea[] = [];
+  if (
+    briefing?.portfolio_summary &&
+    typeof briefing.portfolio_summary === "object"
+  ) {
+    const ps = briefing.portfolio_summary as { options_ideas?: OptionIdea[] };
+    if (Array.isArray(ps.options_ideas)) {
+      optionsIdeas = ps.options_ideas;
+    }
   }
 
   const cashPct = summary.totalValue > 0 ? cash / summary.totalValue : 0;
@@ -159,6 +171,8 @@ export default async function DashboardPage() {
         </CardHeader>
         <HoldingsTable rows={rows} />
       </Card>
+
+      <OptionsIdeasCard ideas={optionsIdeas} />
 
       <Disclaimer />
     </div>
