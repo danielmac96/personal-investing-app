@@ -1,6 +1,6 @@
 ---
 name: daily-brief
-description: Manually run the daily briefing pipeline end to end — fetch yfinance, compute indicators, fan out to subagents, write to Supabase, send the email. Use to debug or to fire an off-schedule briefing.
+description: Manually run the daily briefing pipeline end to end — fetch yfinance, compute indicators, fan out to subagents, write to the local DB, send the email. Use to debug or to fire an off-schedule briefing.
 ---
 
 # /daily-brief
@@ -16,9 +16,11 @@ authoritative source of truth — read it before running this skill.
 
 Before invoking, confirm:
 
-1. Required env vars are present: `SUPABASE_URL`,
-   `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`, `EMAIL_TO`.
+1. Email env vars are present (in `.env` or the environment):
+   `RESEND_API_KEY`, `EMAIL_TO`.
 2. Python deps installed: `pip install -r routine/requirements.txt`.
+   The DB (`data/investing.db`) is created automatically; seed holdings
+   with `python routine/scripts/init_db.py --seed` if it's empty.
 3. The user knows this will send an email — ask before sending if it's
    the second run today.
 

@@ -1,27 +1,38 @@
 # personal-investing-app
 
 A personal investing dashboard. See [`PROJECT.md`](./PROJECT.md) for the full
-spec and roadmap.
+spec and roadmap. (One amendment to the original spec: the stack uses a
+**local SQLite database** — `data/investing.db` — instead of Supabase, and
+runs entirely on your own machine. No cloud database, no auth, no hosting.)
 
 ## Layout
 
 ```
-web/        Next.js 14 dashboard (Vercel-deployable)
-supabase/   SQL migrations applied to the Supabase project
-routine/    Claude Code cloud routine (Phase 3, scaffold only)
+web/        Next.js 14 dashboard (reads the local DB via better-sqlite3)
+db/         schema.sql — single source of truth, applied automatically
+routine/    Daily briefing + weekly screen (Python + Claude Code subagents)
 docs/       Architecture notes
+data/       investing.db lives here (gitignored)
 ```
 
-## Phase 1 quick start
+## Quick start
 
 ```bash
+# 1. Python deps + database
+python -m venv .venv && source .venv/bin/activate
+pip install -r routine/requirements.txt
+python routine/scripts/init_db.py --seed   # creates data/investing.db
+
+# 2. Web app
 cd web
 pnpm install
-cp .env.local.example .env.local   # fill values; see web/.env.local.example
+cp .env.local.example .env.local   # defaults are fine
 pnpm dev
 ```
 
-Open http://localhost:3000.
+Open http://localhost:3000. To run the morning briefing (data fetch,
+analysis, email), see [`routine/SETUP.md`](./routine/SETUP.md) or run
+`/daily-brief` in a Claude Code session.
 
 ## Disclaimer
 

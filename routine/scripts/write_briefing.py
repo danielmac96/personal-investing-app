@@ -1,4 +1,4 @@
-"""Upsert the day's writeables, then call apply_briefing() atomically.
+"""Write the day's market data + briefing to the local SQLite DB atomically.
 
 Reads:
   * routine/data/indicators-<date>.json  (from compute_indicators.py)
@@ -19,7 +19,7 @@ LatestRecommendationCard contract):
         {"symbol": "...", "signal": "...", "confidence": 1-10, "reasoning": "..."},
         ...
       ],
-      "portfolio_doctor": {... arbitrary jsonb ...},
+      "portfolio_doctor": {... arbitrary json ...},
       "profile_notes": "optional one-liner"
     },
     "raw_payload": {... arbitrary, kept for audit ...},
@@ -38,91 +38,148 @@ LatestRecommendationCard contract):
       {"symbol": "...", "url": "...", "published_at": "...", "sentiment": "..."}
     ]
   }
+
+Everything — prices, fundamentals, earnings, news, briefing, and the
+recommendations replace — runs in one SQLite transaction, so a partial
+failure never leaves the dashboard half-updated.
 """
 
 from __future__ import annotations
 
 import json
+import sqlite3
 import sys
 from pathlib import Path
 from typing import Any
 
-from common import load_env, snapshot_path, supabase_client
-
-CHUNK = 200  # postgrest upsert size — keep payloads modest
+from common import db, load_env, snapshot_path
 
 
-def chunked(seq, size=CHUNK):
-    for i in range(0, len(seq), size):
-        yield seq[i : i + size]
+def upsert_prices(conn: sqlite3.Connection, rows: list[dict[str, Any]]) -> int:
+    conn.executemany(
+        """INSERT INTO prices_eod (symbol, date, open, high, low, close, volume)
+           VALUES (:symbol, :date, :open, :high, :low, :close, :volume)
+           ON CONFLICT (symbol, date) DO UPDATE SET
+             open = excluded.open, high = excluded.high, low = excluded.low,
+             close = excluded.close, volume = excluded.volume""",
+        rows,
+    )
+    return len(rows)
 
 
-def upsert_prices(client, rows: list[dict[str, Any]]) -> int:
-    n = 0
-    for chunk in chunked(rows):
-        client.table("prices_eod").upsert(chunk, on_conflict="symbol,date").execute()
-        n += len(chunk)
-    return n
+def upsert_fundamentals(conn: sqlite3.Connection, rows: list[dict[str, Any]]) -> int:
+    conn.executemany(
+        """INSERT INTO fundamentals_snapshot (symbol, snapshot_date, data)
+           VALUES (?, ?, ?)
+           ON CONFLICT (symbol, snapshot_date) DO UPDATE SET data = excluded.data""",
+        [
+            (r["symbol"], r["snapshot_date"], json.dumps(r["data"]))
+            for r in rows
+        ],
+    )
+    return len(rows)
 
 
-def upsert_fundamentals(client, rows: list[dict[str, Any]]) -> int:
-    n = 0
-    for chunk in chunked(rows):
-        client.table("fundamentals_snapshot").upsert(
-            chunk, on_conflict="symbol,snapshot_date"
-        ).execute()
-        n += len(chunk)
-    return n
-
-
-def upsert_news(client, rows: list[dict[str, Any]], overrides_by_key: dict[tuple, str | None]) -> int:
+def upsert_news(
+    conn: sqlite3.Connection,
+    rows: list[dict[str, Any]],
+    overrides_by_key: dict[tuple, str | None],
+) -> int:
     if not rows:
         return 0
-    enriched = []
+    params = []
     for r in rows:
         key = (r["symbol"], r.get("url"), r["published_at"])
-        if key in overrides_by_key:
-            r = {**r, "sentiment": overrides_by_key[key]}
-        enriched.append(r)
-    n = 0
-    for chunk in chunked(enriched):
-        client.table("news_items").upsert(
-            chunk, on_conflict="symbol,url,published_at"
-        ).execute()
-        n += len(chunk)
-    return n
+        sentiment = overrides_by_key.get(key, r.get("sentiment"))
+        params.append((
+            r["symbol"],
+            r["headline"],
+            r.get("url") or "",  # '' keeps the UNIQUE key deduping url-less items
+            r["published_at"],
+            sentiment,
+            r.get("source"),
+        ))
+    conn.executemany(
+        """INSERT INTO news_items (symbol, headline, url, published_at, sentiment, source)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT (symbol, url, published_at) DO UPDATE SET
+             headline = excluded.headline,
+             sentiment = coalesce(excluded.sentiment, news_items.sentiment),
+             source = excluded.source""",
+        params,
+    )
+    return len(params)
 
 
-def upsert_earnings(client, rows: list[dict[str, Any]]) -> int:
+def upsert_earnings(conn: sqlite3.Connection, rows: list[dict[str, Any]]) -> int:
     if not rows:
         return 0
-    # Earnings rows arrive once per symbol/date; merging both upcoming +
-    # history into a single upsert is fine because the PK matches.
-    n = 0
-    for chunk in chunked(rows):
-        client.table("earnings_events").upsert(
-            chunk, on_conflict="symbol,report_date"
-        ).execute()
-        n += len(chunk)
-    return n
+    conn.executemany(
+        """INSERT INTO earnings_events
+             (symbol, report_date, eps_estimate, eps_actual, surprise_pct)
+           VALUES (:symbol, :report_date, :eps_estimate, :eps_actual, :surprise_pct)
+           ON CONFLICT (symbol, report_date) DO UPDATE SET
+             eps_estimate = excluded.eps_estimate,
+             eps_actual = excluded.eps_actual,
+             surprise_pct = excluded.surprise_pct""",
+        [
+            {
+                "symbol": r["symbol"],
+                "report_date": r["report_date"],
+                "eps_estimate": r.get("eps_estimate"),
+                "eps_actual": r.get("eps_actual"),
+                "surprise_pct": r.get("surprise_pct"),
+            }
+            for r in rows
+        ],
+    )
+    return len(rows)
 
 
 def apply_briefing(
-    client,
+    conn: sqlite3.Connection,
     briefing_date: str,
     portfolio_summary: dict[str, Any],
     raw_payload: dict[str, Any],
     recommendations: list[dict[str, Any]],
 ) -> None:
-    client.rpc(
-        "apply_briefing",
-        {
-            "_briefing_date": briefing_date,
-            "_portfolio_summary": portfolio_summary,
-            "_raw_payload": raw_payload,
-            "_recommendations": recommendations,
-        },
-    ).execute()
+    """Replace the briefing + recommendations for this date.
+
+    Idempotent: a re-run on the same briefing_date fully replaces prior
+    contents instead of duplicating recommendations.
+    """
+    conn.execute(
+        "DELETE FROM recommendations WHERE briefing_date = ?", (briefing_date,)
+    )
+    conn.execute(
+        "DELETE FROM daily_briefings WHERE briefing_date = ?", (briefing_date,)
+    )
+    conn.execute(
+        """INSERT INTO daily_briefings (briefing_date, portfolio_summary, raw_payload)
+           VALUES (?, ?, ?)""",
+        (briefing_date, json.dumps(portfolio_summary), json.dumps(raw_payload)),
+    )
+    conn.executemany(
+        """INSERT INTO recommendations
+             (briefing_date, symbol, signal, confidence, reasoning,
+              watch_items, thesis_status, indicator_snapshot)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        [
+            (
+                briefing_date,
+                r["symbol"],
+                r["signal"],
+                int(r["confidence"]),
+                r["reasoning"],
+                json.dumps(r.get("watch_items") or []),
+                r.get("thesis_status") or None,
+                json.dumps(r.get("indicator_snapshot"))
+                if r.get("indicator_snapshot") is not None
+                else None,
+            )
+            for r in recommendations
+        ],
+    )
 
 
 def main() -> int:
@@ -147,20 +204,19 @@ def main() -> int:
         key = (o["symbol"], o.get("url"), o["published_at"])
         overrides_by_key[key] = o.get("sentiment")
 
-    client = supabase_client()
-
-    p = upsert_prices(client, w["prices_eod"])
-    f_ = upsert_fundamentals(client, w["fundamentals_snapshot"])
-    e = upsert_earnings(client, w["earnings_events"])
-    n = upsert_news(client, w["news_items"], overrides_by_key)
-
-    apply_briefing(
-        client,
-        briefing_date=briefing_date,
-        portfolio_summary=briefing["portfolio_summary"],
-        raw_payload=briefing.get("raw_payload") or {},
-        recommendations=briefing["recommendations"],
-    )
+    conn = db()
+    with conn:  # one transaction for the whole briefing
+        p = upsert_prices(conn, w["prices_eod"])
+        f_ = upsert_fundamentals(conn, w["fundamentals_snapshot"])
+        e = upsert_earnings(conn, w["earnings_events"])
+        n = upsert_news(conn, w["news_items"], overrides_by_key)
+        apply_briefing(
+            conn,
+            briefing_date=briefing_date,
+            portfolio_summary=briefing["portfolio_summary"],
+            raw_payload=briefing.get("raw_payload") or {},
+            recommendations=briefing["recommendations"],
+        )
 
     summary = {
         "briefing_date": briefing_date,

@@ -16,7 +16,7 @@ import argparse
 import json
 import sys
 
-from common import load_env, record_run, supabase_client
+from common import db, load_env, record_run
 
 
 def main() -> int:
@@ -38,9 +38,9 @@ def main() -> int:
             return 2
 
     load_env()
-    client = supabase_client()
+    conn = db()
     record_run(
-        client,
+        conn,
         run_type=args.run_type,
         status=args.status,
         run_date=args.run_date,

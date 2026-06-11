@@ -1,22 +1,23 @@
 import Link from "next/link";
 
-import { signOut } from "@/app/actions/auth";
 import { Disclaimer } from "@/components/Disclaimer";
 import { DayChangePill } from "@/components/DayChangePill";
 import { HoldingsTable } from "@/components/HoldingsTable";
 import { OptionsIdeasCard, type OptionIdea } from "@/components/OptionsIdeasCard";
-import { RunStatusBanner, type RoutineRun } from "@/components/RunStatusBanner";
+import { RunStatusBanner } from "@/components/RunStatusBanner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatDate, formatUsd } from "@/lib/format";
 import {
-  buildPriceMap,
-  enrichHoldings,
-  type Holding,
-  type PriceRow,
-} from "@/lib/portfolio";
-import { createClient } from "@/lib/supabase/server";
+  getCash,
+  getHoldings,
+  getLatestBriefing,
+  getLatestRun,
+  getRecentCloses,
+  getTopRecommendations,
+} from "@/lib/db";
+import { formatDate, formatUsd } from "@/lib/format";
+import { buildPriceMap, enrichHoldings } from "@/lib/portfolio";
 
 export const dynamic = "force-dynamic";
 
@@ -28,41 +29,11 @@ type TopWatchItem = {
 };
 
 export default async function DashboardPage() {
-  const supabase = createClient();
-
-  const [holdingsRes, cashRes, pricesRes, briefingRes, runRes] =
-    await Promise.all([
-      supabase
-        .from("holdings")
-        .select("symbol, qty, cost_basis_per_share, notes")
-        .order("symbol", { ascending: true }),
-      supabase.from("cash_position").select("amount").maybeSingle(),
-      // Latest two closes per symbol — fetch a generous window and reduce
-      // client-side. Cheap enough for ~30 holdings.
-      supabase
-        .from("prices_eod")
-        .select("symbol, date, close")
-        .order("date", { ascending: false })
-        .limit(500),
-      supabase
-        .from("daily_briefings")
-        .select("briefing_date, portfolio_summary")
-        .order("briefing_date", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-      supabase
-        .from("routine_runs")
-        .select("run_type, run_date, status, email_status, error, created_at")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-    ]);
-
-  const holdings = (holdingsRes.data ?? []) as Holding[];
-  const cash = Number(cashRes.data?.amount ?? 0);
-  const priceRows = (pricesRes.data ?? []) as PriceRow[];
-  const briefing = briefingRes.data;
-  const latestRun = (runRes.data ?? null) as RoutineRun | null;
+  const holdings = getHoldings();
+  const cash = getCash();
+  const priceRows = getRecentCloses();
+  const briefing = getLatestBriefing();
+  const latestRun = getLatestRun();
 
   const prices = buildPriceMap(priceRows);
   const { rows, summary } = enrichHoldings(holdings, prices, cash);
@@ -70,37 +41,24 @@ export default async function DashboardPage() {
   // Pull top 3 watch items from the latest briefing's portfolio_summary, if
   // the routine wrote them. Otherwise fall back to the recommendations table.
   let topWatch: TopWatchItem[] = [];
-  if (
-    briefing?.portfolio_summary &&
-    typeof briefing.portfolio_summary === "object"
-  ) {
-    const ps = briefing.portfolio_summary as {
-      top_watch_items?: TopWatchItem[];
-    };
-    if (Array.isArray(ps.top_watch_items)) {
-      topWatch = ps.top_watch_items.slice(0, 3);
-    }
+  const ps = briefing?.portfolio_summary as
+    | { top_watch_items?: TopWatchItem[]; options_ideas?: OptionIdea[] }
+    | undefined;
+  if (Array.isArray(ps?.top_watch_items)) {
+    topWatch = ps.top_watch_items.slice(0, 3);
   }
   if (topWatch.length === 0 && briefing?.briefing_date) {
-    const { data } = await supabase
-      .from("recommendations")
-      .select("symbol, signal, confidence, reasoning")
-      .eq("briefing_date", briefing.briefing_date)
-      .order("confidence", { ascending: false })
-      .limit(3);
-    topWatch = (data ?? []) as TopWatchItem[];
+    topWatch = getTopRecommendations(briefing.briefing_date, 3).map((r) => ({
+      symbol: r.symbol,
+      signal: r.signal,
+      confidence: r.confidence,
+      reasoning: r.reasoning,
+    }));
   }
 
-  let optionsIdeas: OptionIdea[] = [];
-  if (
-    briefing?.portfolio_summary &&
-    typeof briefing.portfolio_summary === "object"
-  ) {
-    const ps = briefing.portfolio_summary as { options_ideas?: OptionIdea[] };
-    if (Array.isArray(ps.options_ideas)) {
-      optionsIdeas = ps.options_ideas;
-    }
-  }
+  const optionsIdeas: OptionIdea[] = Array.isArray(ps?.options_ideas)
+    ? ps.options_ideas
+    : [];
 
   const cashPct = summary.totalValue > 0 ? cash / summary.totalValue : 0;
 
@@ -130,11 +88,6 @@ export default async function DashboardPage() {
             <Link href="/upload">
               <Button variant="secondary">Upload CSV</Button>
             </Link>
-            <form action={signOut}>
-              <Button variant="ghost" type="submit">
-                Sign out
-              </Button>
-            </form>
           </div>
         </CardBody>
       </Card>
@@ -151,8 +104,9 @@ export default async function DashboardPage() {
         <CardBody>
           {topWatch.length === 0 ? (
             <p className="text-sm text-slate-500">
-              The daily routine hasn&apos;t written a briefing yet. Phase 3
-              will populate this section.
+              The daily routine hasn&apos;t written a briefing yet. Run{" "}
+              <span className="font-mono">/daily-brief</span> to populate this
+              section.
             </p>
           ) : (
             <ul className="space-y-3">

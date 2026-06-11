@@ -6,7 +6,7 @@ description: Deep-dive a single symbol — fundamentals + technical + news + the
 # /research-ticker SYMBOL
 
 One-symbol analyst run. Unlike `/daily-brief`, this skill does NOT
-write to Supabase or send email — it's for ad-hoc research.
+write to the database or send email — it's for ad-hoc research.
 
 ## Steps
 
@@ -30,7 +30,7 @@ write to Supabase or send email — it's for ad-hoc research.
 3. Read the symbol's entry from
    `routine/data/indicators-<today>.json`.
 
-4. Fetch the user's saved thesis from Supabase via
+4. Fetch the user's saved thesis from the local DB via
    `python routine/scripts/load_context.py | jq '.symbols[] | select(.symbol=="NVDA")'`
 
 5. Invoke in parallel:
@@ -49,7 +49,7 @@ write to Supabase or send email — it's for ad-hoc research.
    - A one-paragraph synthesis with the same signal vocabulary used by
      the daily routine.
 
-Do NOT write anything to Supabase. Do NOT send an email.
+Do NOT write anything to the database. Do NOT send an email.
 
 ## Argument handling
 

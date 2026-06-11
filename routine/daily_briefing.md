@@ -1,10 +1,11 @@
-# Daily Briefing Routine — Claude Code Cloud Routine Prompt
+# Daily Briefing Routine — Claude Code Routine Prompt
 
-> **How to use:** create a `/schedule` task in claude.ai/code, point it at
-> this repo, and paste the body of this file as the prompt. Schedule is
-> weekdays 06:30 ET. See `routine/SETUP.md` for the full setup.
+> **How to use:** run on the machine that holds `data/investing.db` —
+> either via cron (`claude -p "$(cat routine/daily_briefing.md)"`) on
+> weekday mornings, or manually with `/daily-brief`. See
+> `routine/SETUP.md` for the full setup.
 >
-> When invoked as a cloud routine, you (Claude) execute the steps below
+> When invoked as a routine, you (Claude) execute the steps below
 > sequentially. The work is deterministic — no creative prose, just data
 > in / data out / atomic write / email.
 
@@ -21,9 +22,9 @@ subagent shares.
 2. Default to "sit on your hands." Manufactured action is worse than no
    action.
 3. Never call external paid APIs. yfinance only.
-4. All writes go through `routine/scripts/write_briefing.py` →
-   `apply_briefing` Postgres function. Do not write directly via the
-   Supabase MCP.
+4. All writes go through `routine/scripts/write_briefing.py`, which
+   wraps the whole briefing in one SQLite transaction. Do not write to
+   `data/investing.db` directly.
 5. Information, not financial advice — the disclaimer is mandatory and
    the email already carries it.
 
@@ -210,7 +211,7 @@ Validate before writing:
 - Every `recommendations[*].symbol` exists in holdings ∪ watchlist.
 - `top_watch_items` length == 3.
 
-## Step 9 — Write to Supabase (atomic)
+## Step 9 — Write to the local DB (atomic)
 
 Run:
 
@@ -218,9 +219,9 @@ Run:
 python routine/scripts/write_briefing.py routine/data/briefing-<date>.json
 ```
 
-This upserts prices/fundamentals/news/earnings, then calls
-`apply_briefing` which replaces today's `daily_briefings` +
-`recommendations` rows in one transaction. Idempotent — safe to re-run.
+This upserts prices/fundamentals/news/earnings and replaces today's
+`daily_briefings` + `recommendations` rows, all in one SQLite
+transaction. Idempotent — safe to re-run.
 
 ## Step 10 — Send the email
 

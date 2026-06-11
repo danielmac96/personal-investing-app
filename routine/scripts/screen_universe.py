@@ -31,7 +31,7 @@ from typing import Any
 
 import yfinance as yf  # type: ignore[import-untyped]
 
-from common import briefing_date_str, load_env, retry, snapshot_path, supabase_client
+from common import briefing_date_str, db, load_env, retry, snapshot_path
 from compute_indicators import _f, indicator_snapshot
 from fetch_market_data import serialise_history
 from universe import screen_universe
@@ -118,10 +118,10 @@ def evaluate(symbol: str) -> dict[str, Any] | None:
 
 def main() -> int:
     load_env()
-    client = supabase_client()
+    conn = db()
 
-    held = {h["symbol"] for h in (client.table("holdings").select("symbol").execute().data or [])}
-    watched = {w["symbol"] for w in (client.table("watchlist").select("symbol").execute().data or [])}
+    held = {row["symbol"] for row in conn.execute("SELECT symbol FROM holdings")}
+    watched = {row["symbol"] for row in conn.execute("SELECT symbol FROM watchlist")}
     exclude = held | watched
 
     symbols = screen_universe(exclude=exclude)
