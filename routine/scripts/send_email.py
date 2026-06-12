@@ -16,7 +16,7 @@ from pathlib import Path
 
 import requests
 
-from common import load_env, record_run, require_env, supabase_client
+from common import db, load_env, record_run, require_env
 
 
 def usd(value):
@@ -116,11 +116,10 @@ def main() -> int:
     # Records a routine_runs row regardless of outcome, so an undelivered
     # email is always visible on the dashboard. Best-effort — never masks
     # the email result.
-    client = None
     try:
-        client = supabase_client()
-    except SystemExit:
-        client = None  # missing Supabase env shouldn't block the email itself
+        client = db()
+    except Exception:  # noqa: BLE001 — a DB problem shouldn't block the email
+        client = None
 
     try:
         resp = requests.post(

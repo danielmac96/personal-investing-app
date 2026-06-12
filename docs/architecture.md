@@ -1,25 +1,28 @@
 # Architecture
 
+Everything runs locally on one machine. State is a single SQLite file.
+
 ```
 ┌──────────────────────┐         ┌──────────────────────┐
-│  Claude Code cloud   │         │  Schwab CSV (manual) │
-│  routine (weekday    │         │                      │
-│  6:30 AM ET)         │         │  uploaded via /upload│
+│  Claude Code routine │         │  Schwab CSV (manual) │
+│  (weekday mornings — │         │                      │
+│  cron or /daily-brief)│        │  uploaded via /upload│
 │                      │         │                      │
 │  yfinance ──► pandas │         └──────────┬───────────┘
 │  indicators ──► sub‑ │                    │
 │  agents ──► briefing │                    ▼
 └──────────┬───────────┘          ┌──────────────────────┐
-           │ service-role         │  Next.js App Router  │
-           │ writes               │  on Vercel (Hobby)   │
-           ▼                      │                      │
+           │ one SQLite           │  Next.js App Router  │
+           │ transaction          │  (pnpm dev / start,  │
+           ▼                      │  localhost only)     │
    ┌──────────────────────────────┴───────┐              │
-   │           Supabase (Postgres + RLS)  │◄─ user reads ┘
-   │  prices_eod, fundamentals_snapshot,  │   (anon JWT,
-   │  news_items, earnings_events,        │    RLS gated
-   │  daily_briefings, recommendations,   │    by email
-   │  holdings, watchlist, theses,        │    allow-list)
-   │  cash_position                       │
+   │      data/investing.db (SQLite)      │◄─ reads +    │
+   │  prices_eod, fundamentals_snapshot,  │   user writes┘
+   │  news_items, earnings_events,        │   (better-sqlite3)
+   │  daily_briefings, recommendations,   │
+   │  holdings, watchlist, theses,        │
+   │  cash_position, watchlist_proposals, │
+   │  routine_runs                        │
    └──────────────────────────────────────┘
                        │
                        ▼
@@ -28,19 +31,26 @@
                └──────────────┘
 ```
 
+Schema: `db/schema.sql` — idempotent, applied automatically on every
+connection open by both the web app (`web/lib/db.ts`) and the routine
+(`routine/scripts/common.py`). No migration tooling needed; edit the
+schema additively.
+
 ## Boundary rules
 
-- **App never calls Anthropic, never calls yfinance.** Pure read of Supabase
-  data + thin user-write paths.
+- **App never calls Anthropic, never calls yfinance.** Pure read of the
+  local DB + thin user-write paths (CSV import, watchlist, theses).
 - **Routine never serves HTTP.** It runs, writes, emails, exits.
-- **RLS is the security boundary**, not the middleware. Middleware redirects
-  unauthenticated users for UX; RLS keeps the data safe even if middleware is
-  bypassed.
+- **The routine owns analytical tables** (prices, fundamentals, news,
+  earnings, briefings, recommendations, proposals, runs); the app owns
+  user tables (holdings, watchlist, theses, cash). Both sides honour
+  that split by convention — there's no second user to defend against.
+- **No auth.** The app binds to localhost for a single user. Don't
+  expose the port publicly; if remote access is ever needed, put it
+  behind a VPN/tailnet rather than re-adding a login.
 
-## Phase 1 surface
+## Concurrency
 
-- `/login`, `/`, `/upload` only.
-- The dashboard reads from `holdings`, `cash_position`, and (when populated)
-  `prices_eod` + `daily_briefings`. Until the routine runs (Phase 3), the
-  dashboard shows holdings + cash with no last-close/day-change data — that's
-  expected.
+SQLite runs in WAL mode, so the dashboard can read while the morning
+briefing writes. The briefing is one transaction — readers see the old
+briefing or the new one, never a half-written day.

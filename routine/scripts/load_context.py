@@ -1,6 +1,6 @@
 """Emit the per-symbol input bundles the Claude session feeds to subagents.
 
-Reads routine/data/indicators-<date>.json + theses + holdings from Supabase
+Reads routine/data/indicators-<date>.json + theses + cash from the local DB
 and prints a JSON document with everything the routine needs in-memory:
 
   {
@@ -32,22 +32,24 @@ from __future__ import annotations
 import json
 import sys
 
-from common import load_env, snapshot_path, supabase_client
+from common import db, load_env, snapshot_path
 
 
 def main() -> int:
     load_env()
-    client = supabase_client()
+    conn = db()
     indicators_path = snapshot_path("indicators")
     with indicators_path.open() as f:
         indicators = json.load(f)
 
-    theses = (
-        client.table("theses").select("symbol, thesis_text").execute().data or []
-    )
-    by_symbol = {t["symbol"]: t["thesis_text"] for t in theses}
+    by_symbol = {
+        row["symbol"]: row["thesis_text"]
+        for row in conn.execute("SELECT symbol, thesis_text FROM theses")
+    }
 
-    cash_row = client.table("cash_position").select("amount").maybe_single().execute().data
+    cash_row = conn.execute(
+        "SELECT amount FROM cash_position WHERE id = 1"
+    ).fetchone()
     cash = float(cash_row["amount"]) if cash_row else 0.0
 
     out = {

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import sqlite3
 import sys
 import time
 from datetime import date, datetime, timezone
@@ -11,20 +13,19 @@ from typing import Callable, TypeVar
 
 try:
     from dotenv import load_dotenv
-except ImportError:  # dotenv is optional in the cloud routine
+except ImportError:  # dotenv is optional
     load_dotenv = None  # type: ignore[assignment]
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+SCHEMA_PATH = REPO_ROOT / "db" / "schema.sql"
+DEFAULT_DB_PATH = REPO_ROOT / "data" / "investing.db"
 
 
 def load_env() -> None:
-    """Load .env from the repo root if python-dotenv is installed.
-
-    In the cloud routine env vars are injected directly, so this is a no-op.
-    """
+    """Load .env from the repo root if python-dotenv is installed."""
     if load_dotenv is not None:
-        repo_root = Path(__file__).resolve().parent.parent.parent
-        load_dotenv(repo_root / ".env", override=False)
+        load_dotenv(REPO_ROOT / ".env", override=False)
 
 
 def require_env(name: str) -> str:
@@ -35,13 +36,19 @@ def require_env(name: str) -> str:
     return value
 
 
-def supabase_client():
-    """Return a Supabase client authenticated with the service-role key."""
-    from supabase import create_client
+def db() -> sqlite3.Connection:
+    """Open the shared local SQLite database (same file the web app reads).
 
-    url = require_env("SUPABASE_URL")
-    key = require_env("SUPABASE_SERVICE_ROLE_KEY")
-    return create_client(url, key)
+    The schema script is idempotent and applied on every open, so a fresh
+    checkout works without a separate migration step. Rows come back as
+    sqlite3.Row, which supports dict-style access.
+    """
+    db_path = Path(os.environ.get("INVESTING_DB_PATH") or DEFAULT_DB_PATH)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path, timeout=30)
+    conn.row_factory = sqlite3.Row
+    conn.executescript(SCHEMA_PATH.read_text())
+    return conn
 
 
 def utcnow_iso() -> str:
@@ -49,7 +56,7 @@ def utcnow_iso() -> str:
 
 
 def record_run(
-    client,
+    conn: sqlite3.Connection,
     *,
     run_type: str,
     status: str,
@@ -61,23 +68,26 @@ def record_run(
     """Insert a routine_runs row. Best-effort: never raises — a logging
     failure must not mask the original outcome it's trying to record."""
     try:
-        client.table("routine_runs").insert({
-            "run_type": run_type,
-            "run_date": run_date or briefing_date_str(),
-            "status": status,
-            "email_status": email_status,
-            "summary": summary,
-            "error": error,
-        }).execute()
+        with conn:
+            conn.execute(
+                """INSERT INTO routine_runs
+                   (run_type, run_date, status, email_status, summary, error)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    run_type,
+                    run_date or briefing_date_str(),
+                    status,
+                    email_status,
+                    json.dumps(summary) if summary is not None else None,
+                    error,
+                ),
+            )
     except Exception as e:  # noqa: BLE001
         print(f"WARN: failed to record routine_run: {e}", file=sys.stderr)
 
 
 def briefing_date_str() -> str:
-    """The date to label this briefing with — today's UTC date is fine.
-
-    The scheduler triggers at 06:30 ET, well into UTC today.
-    """
+    """The date to label this briefing with — today's local date."""
     return date.today().isoformat()
 
 

@@ -12,9 +12,8 @@ Input JSON (assembled by the weekly_screen.md routine) — an array of up to 3:
     ...
   ]
 
-Calls apply_screen_proposals(proposed_date, proposals) which replaces only
-the still-pending rows for that date — approved/dismissed proposals are
-never clobbered.
+Replaces only the still-pending rows for that date — approved/dismissed
+proposals are never clobbered.
 """
 
 from __future__ import annotations
@@ -23,7 +22,7 @@ import json
 import sys
 from pathlib import Path
 
-from common import briefing_date_str, load_env, supabase_client
+from common import briefing_date_str, db, load_env
 
 
 def main() -> int:
@@ -46,11 +45,36 @@ def main() -> int:
         print("proposals must be a JSON array", file=sys.stderr)
         return 2
 
-    client = supabase_client()
-    client.rpc(
-        "apply_screen_proposals",
-        {"_proposed_date": proposed_date, "_proposals": proposals},
-    ).execute()
+    conn = db()
+    with conn:
+        # Replace only still-pending rows for this date; never clobber a
+        # proposal the user already approved or dismissed.
+        conn.execute(
+            "DELETE FROM watchlist_proposals WHERE proposed_date = ? AND status = 'pending'",
+            (proposed_date,),
+        )
+        conn.executemany(
+            """INSERT INTO watchlist_proposals
+                 (symbol, proposed_date, screen_metrics, confidence, reasoning, status)
+               VALUES (?, ?, ?, ?, ?, 'pending')
+               ON CONFLICT (symbol, proposed_date) DO UPDATE SET
+                 screen_metrics = excluded.screen_metrics,
+                 confidence     = excluded.confidence,
+                 reasoning      = excluded.reasoning
+               WHERE watchlist_proposals.status = 'pending'""",
+            [
+                (
+                    p["symbol"],
+                    proposed_date,
+                    json.dumps(p.get("screen_metrics"))
+                    if p.get("screen_metrics") is not None
+                    else None,
+                    int(p["confidence"]) if p.get("confidence") is not None else None,
+                    p.get("reasoning"),
+                )
+                for p in proposals
+            ],
+        )
 
     print(
         json.dumps(

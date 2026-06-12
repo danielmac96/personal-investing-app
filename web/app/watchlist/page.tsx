@@ -2,8 +2,8 @@ import Link from "next/link";
 
 import { Disclaimer } from "@/components/Disclaimer";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
+import { getPendingProposals, getWatchlist } from "@/lib/db";
 import { formatDate } from "@/lib/format";
-import { createClient } from "@/lib/supabase/server";
 
 import { AddWatchlistForm } from "./AddWatchlistForm";
 import { ProposalCard, type Proposal } from "./ProposalCard";
@@ -12,22 +12,8 @@ import { WatchlistRow, type WatchlistItem } from "./WatchlistRow";
 export const dynamic = "force-dynamic";
 
 export default async function WatchlistPage() {
-  const supabase = createClient();
-
-  const [watchRes, proposalsRes] = await Promise.all([
-    supabase
-      .from("watchlist")
-      .select("symbol, notes, added_at")
-      .order("symbol", { ascending: true }),
-    supabase
-      .from("watchlist_proposals")
-      .select("id, symbol, proposed_date, screen_metrics, confidence, reasoning")
-      .eq("status", "pending")
-      .order("confidence", { ascending: false }),
-  ]);
-
-  const watchlist = (watchRes.data ?? []) as WatchlistItem[];
-  const proposals = (proposalsRes.data ?? []) as Proposal[];
+  const watchlist = getWatchlist() as WatchlistItem[];
+  const proposals = getPendingProposals() as Proposal[];
 
   return (
     <div className="space-y-6">

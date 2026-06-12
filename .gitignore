@@ -34,6 +34,9 @@ __pycache__/
 .venv/
 routine/data/
 
+# local SQLite database (regenerate with routine/scripts/init_db.py)
+data/
+
 # misc
 coverage/
 .next/types/

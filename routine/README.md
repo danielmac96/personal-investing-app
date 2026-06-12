@@ -1,26 +1,28 @@
 # Daily Routine
 
-The morning briefing pipeline. Runs every weekday at 6:30 AM ET in a
-Claude Code cloud routine; the same scripts can be run manually for
-research or debugging.
+The morning briefing pipeline. Runs on your machine — scheduled via
+cron + headless Claude Code, or manually with `/daily-brief`. All
+writes go to the local SQLite DB (`data/investing.db`) that the web app
+reads.
 
 ```
 routine/
-├── daily_briefing.md       # the daily cloud-routine prompt (weekdays 6:30 ET)
-├── weekly_screen.md        # the weekly cloud-routine prompt (Sundays 8:00 ET)
-├── SETUP.md                # how to wire up the cloud environment
-├── requirements.txt        # python deps (yfinance, pandas, supabase)
+├── daily_briefing.md       # the daily routine prompt (weekdays 6:30)
+├── weekly_screen.md        # the weekly screen prompt (Sundays 8:00)
+├── SETUP.md                # local setup + scheduling
+├── requirements.txt        # python deps (yfinance, pandas)
 └── scripts/
-    ├── common.py           # supabase client + env helpers
+    ├── common.py           # sqlite connection + env helpers
+    ├── init_db.py          # create schema, optional --seed portfolio
     ├── fetch_market_data.py  # yfinance → routine/data/raw-<date>.json
     ├── compute_indicators.py # → routine/data/indicators-<date>.json
     ├── load_context.py     # joins theses + cash; emits the agent input bundle
     ├── fetch_options.py    # option chains for eligible holdings (daily)
-    ├── write_briefing.py   # upserts + atomic apply_briefing()
+    ├── write_briefing.py   # one-transaction write of the whole briefing
     ├── send_email.py       # < 200-word Resend HTML email
     ├── universe.py         # curated screening universe (weekly)
     ├── screen_universe.py  # hard-filter growth screen → screen-<date>.json
-    ├── write_proposals.py  # atomic apply_screen_proposals()
+    ├── write_proposals.py  # atomic pending-proposals replace
     └── record_run.py       # write a routine_runs heartbeat row
 ```
 
@@ -50,7 +52,7 @@ load_context.py        →   context-<date>.json      (adds theses + cash)
 briefing-<date>.json   (assembled in-session)
         │
         ▼
-write_briefing.py      →   upserts + apply_briefing RPC
+write_briefing.py      →   data/investing.db (single transaction)
         │
         ▼
 send_email.py          →   Resend
@@ -61,15 +63,14 @@ send_email.py          →   Resend
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp ../.env.example ../.env   # if you keep one; otherwise export vars
-export SUPABASE_URL=...
-export SUPABASE_SERVICE_ROLE_KEY=...
+python scripts/init_db.py --seed   # first time only
 python scripts/fetch_market_data.py
 python scripts/compute_indicators.py
 python scripts/load_context.py
 ```
 
-Output JSON files land under `routine/data/`, which is gitignored.
+Output JSON files land under `routine/data/`, which is gitignored. The
+DB lives at `data/investing.db` (override with `INVESTING_DB_PATH`).
 
 ## Subagents
 
@@ -90,7 +91,7 @@ Defined in `.claude/skills/`.
 
 ## Two scheduled routines
 
-| Routine | Prompt | Schedule (America/New_York) | Writes |
-| ------- | ------ | --------------------------- | ------ |
+| Routine | Prompt | Schedule (local time) | Writes |
+| ------- | ------ | --------------------- | ------ |
 | Daily briefing | `daily_briefing.md` | `30 6 * * 1-5` | prices, fundamentals, news, earnings, daily_briefings, recommendations, options_ideas |
 | Weekly screen | `weekly_screen.md` | `0 8 * * 0` | watchlist_proposals (pending) |

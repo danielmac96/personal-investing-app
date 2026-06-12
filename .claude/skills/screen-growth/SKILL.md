@@ -21,8 +21,9 @@ authoritative source — read it before running.
 
 ## Pre-flight
 
-- Env vars `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` present.
 - Deps installed: `pip install -r routine/requirements.txt`.
+- The DB (`data/investing.db`) exists — created automatically on first
+  script run.
 
 ## Notes
 

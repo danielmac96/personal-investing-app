@@ -1,6 +1,6 @@
 """Pull yfinance data for all holdings + watchlist symbols.
 
-Reads the universe from Supabase, then for each symbol fetches:
+Reads the universe from the local DB, then for each symbol fetches:
   * the last 400 trading-day OHLCV history (enough for SMA-200 + buffer)
   * Ticker.info (or fast_info as fallback) for fundamentals
   * recent news headlines
@@ -26,10 +26,10 @@ import yfinance as yf  # type: ignore[import-untyped]
 
 from common import (
     briefing_date_str,
+    db,
     load_env,
     retry,
     snapshot_path,
-    supabase_client,
 )
 
 HISTORY_DAYS = 400  # need ≥ 200 trading days for SMA-200; pad for holidays
@@ -40,21 +40,17 @@ NEWS_MAX = 15
 TICKER_PAUSE_SEC = 0.4
 
 
-def fetch_universe(client) -> list[dict[str, Any]]:
-    holdings = (
-        client.table("holdings")
-        .select("symbol, qty, cost_basis_per_share")
-        .execute()
-        .data
-        or []
-    )
-    watch = (
-        client.table("watchlist")
-        .select("symbol")
-        .execute()
-        .data
-        or []
-    )
+def fetch_universe(conn) -> list[dict[str, Any]]:
+    holdings = [
+        dict(row)
+        for row in conn.execute(
+            "SELECT symbol, qty, cost_basis_per_share FROM holdings ORDER BY symbol"
+        )
+    ]
+    watch = [
+        dict(row)
+        for row in conn.execute("SELECT symbol FROM watchlist ORDER BY symbol")
+    ]
 
     held = {h["symbol"]: h for h in holdings}
     universe: list[dict[str, Any]] = []
@@ -269,8 +265,8 @@ def fetch_symbol(symbol: str) -> dict[str, Any]:
 
 def main() -> int:
     load_env()
-    client = supabase_client()
-    universe = fetch_universe(client)
+    conn = db()
+    universe = fetch_universe(conn)
     if not universe:
         print("No holdings or watchlist symbols found — nothing to fetch.", file=sys.stderr)
         return 1
